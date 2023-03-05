@@ -1,8 +1,22 @@
 [package]
-name = "starkmint"
-version = "0.1.0"
-edition = "2021"
+    name    = "starkmint"
+    version = "0.1.0"
+    edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+    # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+    bincode            = "1.3.3"
+bytes = "1.4.0"
+    clap               = { version = "4.1.8", features = [ "derive" ] }
+    color-eyre         = "0.6.2"
+    futures            = "0.3.26"
+    hex                = "0.4.3"
+    serde              = "1.0.152"
+    sha2               = "0.10.6"
+    tendermint         = "0.29.1"
+    tokio              = { version = "1.26.0", features = [ "full" ] }
+    tower              = { version = "0.4.13", features = [ "full" ] }
+    tower-abci         = "0.5.0"
+tracing = "0.1.37"
+    tracing-subscriber = { version = "0.3.16", features = [ "env-filter", "fmt", "std" ] }
