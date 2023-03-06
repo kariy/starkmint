@@ -14,7 +14,6 @@ use tracing_subscriber::EnvFilter;
 const LOCAL_SEQUENCER_URL: &str = "http://127.0.0.1:26657";
 
 #[derive(Debug, Parser)]
-#[clap()]
 pub struct Cli {
     /// Specify a subcommand.
     #[clap()]
@@ -25,7 +24,7 @@ pub struct Cli {
     pub function_name: String,
 
     /// Whether to enable trace on the transaction.
-    #[clap(default_value_t = false)]
+    #[clap(short, long, global = false, default_value_t = true)]
     pub enable_trace: bool,
 
     /// Output log lines to stdout based on the desired log level (RUST_LOG env var).
