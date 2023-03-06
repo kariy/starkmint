@@ -28,7 +28,7 @@ pub struct StarknetApp {
 
 impl StarknetApp {
     pub fn new() -> Self {
-        std::fs::create_dir("/tmp/starkmint").expect("must be able to create temp dir");
+        std::fs::create_dir_all("/tmp/starkmint").expect("must be able to create temp dir");
         std::fs::write(HEIGHT_PATH, bincode::serialize(&Height::default()).unwrap()).unwrap();
 
         Self {
