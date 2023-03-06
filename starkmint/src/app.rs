@@ -1,18 +1,25 @@
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
+use std::time::Instant;
 
 use color_eyre::Result;
 use futures::{Future, FutureExt};
+use once_cell::sync::Lazy;
 use sha2::{Digest, Sha256};
-use tendermint::abci::request::{self, EndBlock, Request};
-use tendermint::abci::{response, Response};
+use tendermint::abci::request::{self, Request};
+use tendermint::abci::{self, response, Response};
 use tendermint::block::Height;
 use tower::Service;
 use tower_abci::BoxError;
 use tracing::{debug, info};
 
+use crate::transaction::{Transaction, TransactionType};
+
 const HEIGHT_PATH: &str = "/tmp/starkmint/abci.height";
+
+static mut TRANSACTIONS: usize = 0;
+static mut TIMER: Lazy<Instant> = Lazy::new(Instant::now);
 
 #[derive(Debug, Clone)]
 pub struct StarknetApp {
@@ -21,6 +28,7 @@ pub struct StarknetApp {
 
 impl StarknetApp {
     pub fn new() -> Self {
+        std::fs::create_dir("/tmp/starkmint").expect("must be able to create temp dir");
         std::fs::write(HEIGHT_PATH, bincode::serialize(&Height::default()).unwrap()).unwrap();
 
         Self {
@@ -66,42 +74,41 @@ impl StarknetApp {
     /// This ABCI hook validates an incoming transaction before inserting it in the
     /// mempool and relaying it to other nodes.
     fn check_tx(&self, request: request::CheckTx) -> response::CheckTx {
-        todo!("Query hook needs implementation");
-        // let tx: Transaction = bincode::deserialize(&request.tx).unwrap();
+        let tx: Transaction = bincode::deserialize(&request.tx).unwrap();
 
-        // match tx.transaction_type {
-        //     TransactionType::FunctionExecution {
-        //         program: _,
-        //         function,
-        //         program_name,
-        //         enable_trace: _,
-        //     } => {
-        //         info!(
-        //             "Received execution transaction. Function: {}, program {}",
-        //             function, program_name
-        //         );
-        //     }
-        // }
+        match tx.transaction_type {
+            TransactionType::FunctionExecution {
+                program: _,
+                function,
+                program_name,
+                enable_trace: _,
+            } => {
+                info!(
+                    "Received execution transaction. Function: {}, program {}",
+                    function, program_name
+                );
+            }
+        }
 
-        // response::CheckTx {
-        //     ..Default::default()
-        // }
+        response::CheckTx {
+            ..Default::default()
+        }
     }
 
     /// This hook is called before the app starts processing transactions on a block.
     /// Used to store current proposer and the previous block's voters to assign fees and coinbase
     /// credits when the block is committed.
     fn begin_block(&self, _request: request::BeginBlock) -> response::BeginBlock {
-        // unsafe {
-        //     TRANSACTIONS = 0;
+        unsafe {
+            TRANSACTIONS = 0;
 
-        //     info!(
-        //         "{} ms passed between previous begin_block() and current begin_block()",
-        //         (*TIMER).elapsed().as_millis()
-        //     );
+            info!(
+                "{} ms passed between previous begin_block() and current begin_block()",
+                (*TIMER).elapsed().as_millis()
+            );
 
-        //     *TIMER = Instant::now();
-        // }
+            *TIMER = Instant::now();
+        }
 
         Default::default()
     }
@@ -110,79 +117,75 @@ impl StarknetApp {
     /// for example storing the program verifying keys upon a valid deployment.
     /// Here is also where transactions are indexed for querying the blockchain.
     fn deliver_tx(&self, request: request::DeliverTx) -> response::DeliverTx {
-        // let tx: Transaction = bincode::deserialize(&request.tx).unwrap();
+        let tx: Transaction = bincode::deserialize(&request.tx).unwrap();
 
-        // // Validation consists of getting the hash and checking whether it is equal
-        // // to the tx id. The hash executes the program and hashes the trace.
+        // Validation consists of getting the hash and checking whether it is equal
+        // to the tx id. The hash executes the program and hashes the trace.
 
-        // let tx_hash = tx
-        //     .transaction_type
-        //     .compute_and_hash()
-        //     .map(|x| x == tx.transaction_hash);
+        let tx_hash = tx
+            .transaction_type
+            .compute_and_hash()
+            .map(|x| x == tx.transaction_hash);
 
-        // unsafe {
-        //     TRANSACTIONS += 1;
-        // }
+        unsafe {
+            TRANSACTIONS += 1;
+        }
 
-        // match tx_hash {
-        //     Ok(true) => {
-        //         let _ = self
-        //             .hasher
-        //             .lock()
-        //             .map(|mut hash| hash.update(tx.transaction_hash.clone()));
+        match tx_hash {
+            Ok(true) => {
+                let _ = self
+                    .hasher
+                    .lock()
+                    .map(|mut hash| hash.update(tx.transaction_hash.clone()));
 
-        //         // prepare this transaction to be queried by app.tx_id
-        //         let index_event = abci::Event {
-        //             r#type: "app".to_string(),
-        //             attributes: vec![abci::EventAttribute {
-        //                 key: "tx_id".to_string().into_bytes(),
-        //                 value: tx.transaction_hash.to_string().into_bytes(),
-        //                 index: true,
-        //             }],
-        //         };
-        //         let mut events = vec![index_event];
+                // prepare this transaction to be queried by app.tx_id
+                let index_event = abci::Event {
+                    kind: "app".to_string(),
+                    attributes: vec![abci::EventAttribute {
+                        index: true,
+                        key: "tx_id".to_string(),
+                        value: tx.transaction_hash.to_string(),
+                    }],
+                };
+                let mut events = vec![index_event];
 
-        //         match tx.transaction_type {
-        //             TransactionType::FunctionExecution {
-        //                 program: _program,
-        //                 function,
-        //                 program_name: _,
-        //                 enable_trace: _,
-        //             } => {
-        //                 let function_event = abci::Event {
-        //                     r#type: "function".to_string(),
-        //                     attributes: vec![abci::EventAttribute {
-        //                         key: "function".to_string().into_bytes(),
-        //                         value: function.into_bytes(),
-        //                         index: true,
-        //                     }],
-        //                 };
-        //                 events.push(function_event);
-        //             }
-        //         }
+                match tx.transaction_type {
+                    TransactionType::FunctionExecution {
+                        program: _program,
+                        function,
+                        program_name: _,
+                        enable_trace: _,
+                    } => {
+                        let function_event = abci::Event {
+                            kind: "function".to_string(),
+                            attributes: vec![abci::EventAttribute {
+                                key: "function".to_string(),
+                                value: function,
+                                index: true,
+                            }],
+                        };
+                        events.push(function_event);
+                    }
+                }
 
-        //         abci::ResponseDeliverTx {
-        //             events,
-        //             data: tx.transaction_hash.into_bytes(),
-        //             ..Default::default()
-        //         }
-        //     }
-        //     Ok(false) => abci::ResponseDeliverTx {
-        //         code: 1,
-        //         log: "Error delivering transaction. Integrity check failed.".to_string(),
-        //         info: "Error delivering transaction. Integrity check failed.".to_string(),
-        //         ..Default::default()
-        //     },
-        //     Err(e) => abci::ResponseDeliverTx {
-        //         code: 1,
-        //         log: format!("Error delivering transaction: {e}"),
-        //         info: format!("Error delivering transaction: {e}"),
-        //         ..Default::default()
-        //     },
-        // }
-
-        response::DeliverTx {
-            ..Default::default()
+                response::DeliverTx {
+                    events,
+                    data: tx.transaction_hash.into(),
+                    ..Default::default()
+                }
+            }
+            Ok(false) => response::DeliverTx {
+                code: 1.into(),
+                log: "Error delivering transaction. Integrity check failed.".to_string(),
+                info: "Error delivering transaction. Integrity check failed.".to_string(),
+                ..Default::default()
+            },
+            Err(e) => response::DeliverTx {
+                code: 1.into(),
+                log: format!("Error delivering transaction: {e}"),
+                info: format!("Error delivering transaction: {e}"),
+                ..Default::default()
+            },
         }
     }
 
@@ -190,14 +193,14 @@ impl StarknetApp {
     /// For details about validator set update semantics see:
     /// https://github.com/tendermint/tendermint/blob/v0.34.x/spec/abci/apps.md#endblock
     fn end_block(&self, _request: request::EndBlock) -> response::EndBlock {
-        // unsafe {
-        //     info!(
-        //         "Committing block with {} transactions in {} ms. TPS: {}",
-        //         TRANSACTIONS,
-        //         (*TIMER).elapsed().as_millis(),
-        //         (TRANSACTIONS * 1000) as f32 / ((*TIMER).elapsed().as_millis() as f32)
-        //     );
-        // }
+        unsafe {
+            info!(
+                "Committing block with {} transactions in {} ms. TPS: {}",
+                TRANSACTIONS,
+                (*TIMER).elapsed().as_millis(),
+                (TRANSACTIONS * 1000) as f32 / ((*TIMER).elapsed().as_millis() as f32)
+            );
+        }
         response::EndBlock {
             ..Default::default()
         }
