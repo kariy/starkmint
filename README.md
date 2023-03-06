@@ -31,16 +31,11 @@ git checkout 8be9b54c8c21
 make install
 ```
 
-Build Rollkit node.
+Build and run Rollkit.
 
 ```sh
 cd rollkit-node
 go build
-```
-
-Run Rollkit.
-
-```sh
 TMHOME="/tmp/starkmint" tendermint init
 NAMESPACE_ID=$(echo $RANDOM | md5sum | head -c 16; echo;)
 ./rollkit-node -config "/tmp/starkmint/config/config.toml" -rollkit.namespace_id $NAMESPACE_ID -rollkit.da_start_height 1
